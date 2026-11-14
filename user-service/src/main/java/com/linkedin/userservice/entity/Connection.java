@@ -1,4 +1,4 @@
-package com.linkedin.userservice.entuty;
+package com.linkedin.userservice.entity;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;

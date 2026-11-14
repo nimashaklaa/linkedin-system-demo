@@ -1,4 +1,4 @@
-package com.linkedin.userservice.entuty;
+package com.linkedin.userservice.entity;
 
 public enum ConnectionStatus {
     PENDING,

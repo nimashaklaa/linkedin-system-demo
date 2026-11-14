@@ -1,6 +1,6 @@
 package com.linkedin.userservice.dto;
 
-import com.linkedin.userservice.entuty.UserRole;
+import com.linkedin.userservice.entity.UserRole;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
