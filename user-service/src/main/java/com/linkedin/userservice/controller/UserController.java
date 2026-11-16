@@ -2,13 +2,14 @@ package com.linkedin.userservice.controller;
 
 import com.linkedin.userservice.dto.UserResponse;
 import com.linkedin.userservice.dto.UpdateUserProfileRequest;
-import com.linkedin.userservice.entity.User;
 import com.linkedin.userservice.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.util.List;
 
 @RestController
@@ -58,7 +59,7 @@ public class UserController {
             @PathVariable String connectionId,
             @RequestHeader("X-User-Id") String requestingUserId
     ){
-        return ResponseEntity.ok(userService.acceptConnectionRequest(connectionId));
+        return ResponseEntity.ok(userService.acceptConnectionRequest(connectionId, requestingUserId));
     }
 
     @GetMapping("/{userId}/connections")
@@ -66,5 +67,31 @@ public class UserController {
             @PathVariable String userId
     ){
         return ResponseEntity.ok(userService.getConnections(userId));
+    }
+
+    @PostMapping("/{userId}/profile-photo")
+    public ResponseEntity<UserResponse> uploadProfilePicture(
+            @PathVariable String userId,
+            @RequestHeader("X-User-Id") String requestingUserId,
+            @RequestPart("file") MultipartFile file
+    ) throws IOException {
+        if(!requestingUserId.equals(userId)){
+            return ResponseEntity.status(403).body(null);
+        }
+        return ResponseEntity.ok(
+                userService.uploadProfilePhoto(userId, file)
+        );
+    }
+
+    @PostMapping("/{userId}/cover-photo")
+    public ResponseEntity<UserResponse> uploadCoverPhoto(
+            @PathVariable String userId,
+            @RequestHeader("X-User-Id") String requestingUserId,
+            @RequestPart("file") MultipartFile file
+    ) throws IOException {
+        if (!requestingUserId.equals(userId)) {
+            return ResponseEntity.status(403).body(null);
+        }
+        return ResponseEntity.ok(userService.uploadCoverPhoto(userId, file));
     }
 }

@@ -11,7 +11,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -31,6 +35,7 @@ public class UserService {
     private static final String CONNECTION_REQUEST_TOPIC = "connection.requested";
     private static final String CONNECTION_ACCEPTED_TOPIC = "connection.accepted";
     private static final String PROFILE_UPDATED_TOPIC = "profile.updated";
+    private final S3Service s3Service;
 
     public UserResponse getUserProfile(String userId) {
         log.info("Getting user profile for user: {}", userId);
@@ -69,12 +74,19 @@ public class UserService {
                 .headline(user.getHeadline())
                 .location(user.getLocation())
                 .about(user.getAbout())
-                .profilePhotoUrl(user.getProfilePhotoUrl())
-                .coverPhotoUrl(user.getCoverPhotoUrl())
+                .profilePhotoUrl(toPhotoUrl(user.getProfilePhotoUrl()))
+                .coverPhotoUrl(toPhotoUrl(user.getCoverPhotoUrl()))
                 .role(user.getRole())
                 .skills(user.getSkills())
                 .createdAt(user.getCreatedAt())
                 .build();
+    }
+
+    private String toPhotoUrl(String photoKey) {
+        if (photoKey != null && photoKey.startsWith("profiles/")) {
+            return s3Service.getFileUrl(photoKey);
+        }
+        return photoKey;
     }
 
     public String sendConnectionRequest(String targetUserId, String requestingUserId) {
@@ -99,10 +111,17 @@ public class UserService {
         return "Connection request sent";
     }
 
-    public String acceptConnectionRequest(String connectionId) {
+    public String acceptConnectionRequest(String connectionId, String requestingUserId) {
         Connection connection = connectionRepository.findById(connectionId).orElseThrow(
-                ()-> new RuntimeException("Connection not found")
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Connection not found")
         );
+        if (!connection.getReceiverId().equals(requestingUserId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the recipient can accept this connection");
+        }
+        if (connection.getStatus() != ConnectionStatus.PENDING) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Connection request is not pending");
+        }
+
         connection.setStatus(ConnectionStatus.CONNECTED);
         connectionRepository.save(connection);
 
@@ -121,5 +140,32 @@ public class UserService {
 
         return connections.stream()
                 .map(connection -> getUserProfile(connection.getReceiverId())).collect(Collectors.toList());
+    }
+
+    public UserResponse uploadProfilePhoto(String userId, MultipartFile file) throws IOException {
+        return uploadUserPhoto(userId, file, "avatar", true);
+    }
+
+    public UserResponse uploadCoverPhoto(String userId, MultipartFile file) throws IOException {
+        return uploadUserPhoto(userId, file, "cover", false);
+    }
+
+    private UserResponse uploadUserPhoto(
+            String userId,
+            MultipartFile file,
+            String imageType,
+            boolean profilePhoto
+    ) throws IOException {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found: " + userId));
+        String photoKey = s3Service.uploadFile(file, "profiles/" + userId + "/" + imageType);
+
+        if (profilePhoto) {
+            user.setProfilePhotoUrl(photoKey);
+        } else {
+            user.setCoverPhotoUrl(photoKey);
+        }
+        User savedUser = userRepository.save(user);
+        return buildUserResponse(savedUser);
     }
 }
