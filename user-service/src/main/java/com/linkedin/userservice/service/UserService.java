@@ -12,7 +12,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
-import java.util.Collections;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -31,6 +30,7 @@ public class UserService {
 
     private static final String CONNECTION_REQUEST_TOPIC = "connection.requested";
     private static final String CONNECTION_ACCEPTED_TOPIC = "connection.accepted";
+    private static final String PROFILE_UPDATED_TOPIC = "profile.updated";
 
     public UserResponse getUserProfile(String userId) {
         log.info("Getting user profile for user: {}", userId);
@@ -51,10 +51,13 @@ public class UserService {
         if (request.getProfilePhotoUrl() != null) existingUser.setProfilePhotoUrl(request.getProfilePhotoUrl());
         if (request.getCoverPhotoUrl() != null) existingUser.setCoverPhotoUrl(request.getCoverPhotoUrl());
         if (request.getSkills() != null) existingUser.setSkills(new ArrayList<>(request.getSkills()));
-        userRepository.save(existingUser);
-        
+        User savedUser = userRepository.save(existingUser);
 
-        return buildUserResponse(existingUser);
+        UserResponse response = buildUserResponse(savedUser);
+        kafkaTemplate.send(PROFILE_UPDATED_TOPIC, savedUser.getId(), response);
+        log.info("Profile updated event sent for user: {}", savedUser.getId());
+
+        return response;
     }
 
     private UserResponse buildUserResponse(User user) {
