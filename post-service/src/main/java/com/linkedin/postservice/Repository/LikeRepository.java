@@ -10,4 +10,6 @@ public interface LikeRepository extends JpaRepository<Like, String> {
     List<Like> findAllByUserId(String userId);
 
     void deleteAllByPostId(String postId);
+
+    Like findByUserIdAndPostId(String userId, String postId);
 }

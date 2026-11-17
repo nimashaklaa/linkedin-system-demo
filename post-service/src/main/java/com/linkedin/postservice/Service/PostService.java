@@ -9,6 +9,7 @@ import com.linkedin.postservice.entity.Post;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
@@ -67,7 +68,7 @@ public class PostService {
 
     public List<Post> getPosts(String authorId) {
         log.info("Getting posts for user: {}", authorId);
-        List<Post> posts = postRepository.findAllPostsByAuthorId(authorId);
+        List<Post> posts = postRepository.findAllPostsByAuthorIdOrderByCreatedAtDesc(authorId);
         log.info("Posts found: {}", posts.size());
         return posts;
     }
@@ -79,15 +80,27 @@ public class PostService {
     @Transactional
     public Like likePost(String postId, String userId) {
         Post post = postRepository.findById(postId).orElseThrow(()-> new RuntimeException("Post not found"));
-        Like savedLike = likeRepository.save(Like.builder()
-                .postId(postId)
-                .userId(userId)
-                .build());
-        post.setLikeCount(post.getLikeCount()+1);
-        postRepository.save(post);
-
-        log.info("Like post for user: {} with id: {}", userId, savedLike.getId());
-        return savedLike;
+        Like existingLike = likeRepository.findByUserIdAndPostId(userId,postId);
+        if(existingLike!=null) {
+            likeRepository.delete(existingLike);
+            post.setLikeCount(Math.max(0, post.getLikeCount() - 1));
+            postRepository.save(post);
+            log.info("Post unliked successfully: {}", post.getId());
+            return null;
+        }
+        try{
+            Like savedLike = likeRepository.save(Like.builder()
+                    .postId(postId)
+                    .userId(userId)
+                    .build());
+            post.setLikeCount(post.getLikeCount()+1);
+            postRepository.save(post);
+            log.info("Like post for user: {} with id: {}", userId, savedLike.getId());
+            return savedLike;
+        }catch (DataIntegrityViolationException e) {
+            log.warn("Concurrent like attempt detected for user: {} on post: {}", userId, postId);
+            return likeRepository.findByUserIdAndPostId(userId, postId);
+        }
     }
 
     public List<Post> getLikedPosts(String userId) {
