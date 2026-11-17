@@ -2,6 +2,7 @@ package com.linkedin.postservice.controller;
 
 import com.linkedin.postservice.Service.PostService;
 import com.linkedin.postservice.entity.Comment;
+import com.linkedin.postservice.entity.Like;
 import com.linkedin.postservice.entity.Post;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,7 +46,7 @@ public class PostController {
     }
 
     @PostMapping("/{postId}/like")
-    public ResponseEntity<Post> likePost(
+    public ResponseEntity<Like> likePost(
             @PathVariable String postId,
             @RequestParam String userId
     ){
@@ -66,6 +67,13 @@ public class PostController {
             @RequestParam String content
     ){
         return ResponseEntity.ok(postService.addComment(postId, authorId, content));
+    }
+
+    @GetMapping("/{postId}/comment")
+    public ResponseEntity<List<Comment>> getComments(
+            @PathVariable String postId
+    ){
+        return ResponseEntity.ok(postService.getComments(postId));
     }
 
     @DeleteMapping("/{postId}")
