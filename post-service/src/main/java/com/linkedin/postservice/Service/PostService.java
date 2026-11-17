@@ -15,6 +15,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import org.springframework.data.domain.Pageable;
+
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -30,14 +32,22 @@ public class PostService {
     private final PostRepository postRepository;
     private final LikeRepository likeRepository;
     private final CommentRepository commentRepository;
+    private final S3Service s3Service;
 
-    public Post createPost(String authorId, String content, MultipartFile mediaUrl) {
+    public Post createPost(String authorId, String content, MultipartFile media) throws IOException {
         log.info("Creating post for user: {} with content: {}", authorId, content);
+
+        String mediaUrl = null;
+
+        if(media!=null && !media.isEmpty()) {
+            mediaUrl = s3Service.uploadFile(media,
+                    "posts/"+authorId);
+        }
 
         Post savedPost = postRepository.save(Post.builder()
                 .authorId(authorId)
                 .content(content)
-                .mediaUrl(mediaUrl.getOriginalFilename())
+                .mediaUrl(mediaUrl)
                 .build());
         log.info("Post created successfully: {}", savedPost.getId());
 
@@ -47,6 +57,7 @@ public class PostService {
         postCreatedEvent.put("authorId",savedPost.getAuthorId());
         postCreatedEvent.put("content",savedPost.getContent());
         postCreatedEvent.put("mediaUrl",savedPost.getMediaUrl());
+        postCreatedEvent.put("createdAt", savedPost.getCreatedAt().toString());
 
         kafkaTemplate.send(POST_CREATED_TOPIC,savedPost.getId(),postCreatedEvent);
         log.info("Post created event published successfully");

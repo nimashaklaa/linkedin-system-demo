@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import org.springframework.data.domain.Pageable;
+
+import java.io.IOException;
 import java.util.List;
 
 @RestController
@@ -29,7 +31,7 @@ public class PostController {
             @RequestParam String authorId,
             @RequestParam String content,
             @RequestParam(required = false)MultipartFile mediaUrl
-            ){
+            ) throws IOException {
         return ResponseEntity.status(HttpStatus.CREATED).body(postService.createPost(authorId, content, mediaUrl));
     }
 
