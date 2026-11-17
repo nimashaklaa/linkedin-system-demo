@@ -61,6 +61,13 @@ public class UserController {
     ){
         return ResponseEntity.ok(userService.acceptConnectionRequest(connectionId, requestingUserId));
     }
+    @PostMapping("/connection/{connectionId}/reject")
+    public ResponseEntity<String> rejectConnection(
+            @PathVariable String connectionId,
+            @RequestHeader("X-User-Id") String requestingUserId
+    ){
+        return ResponseEntity.ok(userService.rejectConnectionRequest(connectionId, requestingUserId));
+    }
 
     @GetMapping("/{userId}/connections")
     public ResponseEntity<List<UserResponse>> getConnections(

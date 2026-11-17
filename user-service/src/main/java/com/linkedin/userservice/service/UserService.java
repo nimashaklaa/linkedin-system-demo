@@ -34,6 +34,7 @@ public class UserService {
 
     private static final String CONNECTION_REQUEST_TOPIC = "connection.requested";
     private static final String CONNECTION_ACCEPTED_TOPIC = "connection.accepted";
+    private static final String CONNECTION_REJECTED_TOPIC = "connection.rejected";
     private static final String PROFILE_UPDATED_TOPIC = "profile.updated";
     private final S3Service s3Service;
 
@@ -132,6 +133,28 @@ public class UserService {
         kafkaTemplate.send(CONNECTION_ACCEPTED_TOPIC, connectionId,connectionAcceptedEvent);
         log.info("Connection accepted: {} -> {}",connection.getRequesterId(), connection.getReceiverId());
         return "Connection accepted";
+    }
+    public String rejectConnectionRequest(String connectionId, String requestingUserId) {
+        Connection connection = connectionRepository.findById(connectionId).orElseThrow(
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Connection not found")
+        );
+        if (!connection.getReceiverId().equals(requestingUserId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the recipient can reject this connection");
+        }
+        if (connection.getStatus() != ConnectionStatus.PENDING) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Connection request is not pending");
+        }
+
+        connection.setStatus(ConnectionStatus.REJECTED);
+        connectionRepository.save(connection);
+
+        Map<String,Object> connectionRejectedEvent = new HashMap<>();
+        connectionRejectedEvent.put("requesterId",connection.getRequesterId());
+        connectionRejectedEvent.put("receiverId",connection.getReceiverId());
+
+        kafkaTemplate.send(CONNECTION_REQUEST_TOPIC, connectionId,connectionRejectedEvent);
+        log.info("Connection rejected: {} -> {}",connection.getRequesterId(), connection.getReceiverId());
+        return "Connection rejected";
     }
 
 
