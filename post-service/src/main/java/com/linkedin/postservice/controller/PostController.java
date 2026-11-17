@@ -6,11 +6,13 @@ import com.linkedin.postservice.entity.Like;
 import com.linkedin.postservice.entity.Post;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import org.springframework.data.domain.Pageable;
 import java.util.List;
 
 @RestController
@@ -70,10 +72,13 @@ public class PostController {
     }
 
     @GetMapping("/{postId}/comment")
-    public ResponseEntity<List<Comment>> getComments(
-            @PathVariable String postId
+    public ResponseEntity<Page<Comment>> getComments(
+            @PathVariable String postId,
+            Pageable pageable
     ){
-        return ResponseEntity.ok(postService.getComments(postId));
+        log.info("Fetching comments for post: {} with page: {} and size: {}",
+                postId, pageable.getPageNumber(), pageable.getPageSize());
+        return ResponseEntity.ok(postService.getComments(postId, pageable));
     }
 
     @DeleteMapping("/{postId}")

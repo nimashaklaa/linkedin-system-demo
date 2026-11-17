@@ -1,15 +1,21 @@
 package com.linkedin.postservice.Service;
 
+import com.linkedin.postservice.Repository.CommentRepository;
+import com.linkedin.postservice.Repository.LikeRepository;
 import com.linkedin.postservice.Repository.PostRepository;
 import com.linkedin.postservice.entity.Comment;
 import com.linkedin.postservice.entity.Like;
 import com.linkedin.postservice.entity.Post;
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import org.springframework.data.domain.Pageable;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,16 +28,17 @@ public class PostService {
 
     private static final String POST_CREATED_TOPIC = "post-created";
     private final PostRepository postRepository;
+    private final LikeRepository likeRepository;
+    private final CommentRepository commentRepository;
 
     public Post createPost(String authorId, String content, MultipartFile mediaUrl) {
         log.info("Creating post for user: {} with content: {}", authorId, content);
 
-        Post post = Post.builder()
+        Post savedPost = postRepository.save(Post.builder()
                 .authorId(authorId)
                 .content(content)
                 .mediaUrl(mediaUrl.getOriginalFilename())
-                .build();
-        Post savedPost = postRepository.save(post);
+                .build());
         log.info("Post created successfully: {}", savedPost.getId());
 
         //publish post.created event
@@ -58,20 +65,60 @@ public class PostService {
         return postRepository.findById(postId).orElseThrow(()-> new RuntimeException("Post not found"));
     }
 
-    public List<Post> getLikedPosts(String userId) {
-
-    }
-
+    @Transactional
     public Like likePost(String postId, String userId) {
+        Post post = postRepository.findById(postId).orElseThrow(()-> new RuntimeException("Post not found"));
+        Like savedLike = likeRepository.save(Like.builder()
+                .postId(postId)
+                .userId(userId)
+                .build());
+        post.setLikeCount(post.getLikeCount()+1);
+        postRepository.save(post);
 
+        log.info("Like post for user: {} with id: {}", userId, savedLike.getId());
+        return savedLike;
     }
+
+    public List<Post> getLikedPosts(String userId) {
+        List<Like> liked_posts = likeRepository.findAllByUserId(userId);
+        if(liked_posts.isEmpty()){
+            return new ArrayList<>();
+        }
+        List<String> postsIds = liked_posts.stream()
+                .map(Like::getPostId)
+                .toList();
+        List<Post> posts = postRepository.findAllById(postsIds);
+        log.info("Found {} liked posts for user: {}", posts.size(), userId);
+        return posts;
+    }
+
 
     public Comment addComment(String postId, String authorId, String content) {
+        Comment savedComment = commentRepository.save(Comment.builder()
+                .postId(postId)
+                .authorId(authorId)
+                .content(content)
+                .build());
+        log.info("Comment created successfully: {}", savedComment.getId());
+        return savedComment;
     }
 
+    @Transactional
     public String deletePost(String postId, String userId) {
+        Post post = postRepository.findById(postId).orElseThrow(()-> new RuntimeException("Post not found"));
+
+        if(!post.getAuthorId().equals(userId)){
+            throw new RuntimeException("Unauthorized: You can only delete your own posts");
+        }
+        likeRepository.deleteAllByPostId(postId);
+        commentRepository.deleteAllByPostId(postId);
+        postRepository.deleteById(postId);
+
+        log.info("Post with id: {} deleted successfully by user: {}", postId, userId);
+        return "Post deleted successfully";
     }
 
-    public List<Comment> getComments(String postId) {
+    public Page<Comment> getComments(String postId, Pageable pageable) {
+        return commentRepository.findAllByPostId(postId, pageable);
     }
 }
