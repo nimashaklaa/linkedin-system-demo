@@ -29,11 +29,13 @@ import java.util.Map;
 public class PostService {
     private final KafkaTemplate<String, Object> kafkaTemplate;
 
-    private static final String POST_CREATED_TOPIC = "post-created";
     private final PostRepository postRepository;
     private final LikeRepository likeRepository;
     private final CommentRepository commentRepository;
     private final S3Service s3Service;
+
+    private static final String POST_CREATED_TOPIC = "post.created";
+    private static final String POST_LIKED_TOPIC="post.liked";
 
     public Post createPost(String authorId, String content, MultipartFile media) throws IOException {
         log.info("Creating post for user: {} with content: {}", authorId, content);
@@ -96,6 +98,13 @@ public class PostService {
             post.setLikeCount(post.getLikeCount()+1);
             postRepository.save(post);
             log.info("Like post for user: {} with id: {}", userId, savedLike.getId());
+
+            Map<String,Object> postLikedEvent = new HashMap<>();
+            postLikedEvent.put("postId",savedLike.getId());
+            postLikedEvent.put("userId", savedLike.getUserId());
+
+            kafkaTemplate.send(POST_CREATED_TOPIC,savedLike.getId(),postLikedEvent);
+            log.info("Like created event published successfully");
             return savedLike;
         }catch (DataIntegrityViolationException e) {
             log.warn("Concurrent like attempt detected for user: {} on post: {}", userId, postId);
