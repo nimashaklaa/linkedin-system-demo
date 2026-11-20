@@ -16,4 +16,6 @@ public interface UserSearchRepository extends ElasticsearchRepository<UserDocume
             }
             """)
     List<UserDocument> searchUsers(String query);
+
+    List<UserDocument> findBySkillsContaining(String skill);
 }

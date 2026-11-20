@@ -45,7 +45,7 @@ public class SearchController {
     public ResponseEntity<List<PostDocument>> searchPosts(
             @RequestParam String query
     ){
-        return ResponseEntity.ok(searchService.searchParams(query));
+        return ResponseEntity.ok(searchService.searchPosts(query));
     }
 
 }

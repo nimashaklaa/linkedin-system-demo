@@ -25,8 +25,13 @@ public class SearchService {
     }
 
     public List<UserDocument> searchBySKill(String skill) {
+        log.info("Searching users by skill: {}", skill);
+        return userSearchRepository.findBySkillsContaining(skill);
+
     }
 
-    public List<PostDocument> searchParams(String query) {
+    public List<PostDocument> searchPosts(String query) {
+        log.info("Searching posts for query: {}", query);
+        return postSearchRepository.searchPosts(query);
     }
 }
