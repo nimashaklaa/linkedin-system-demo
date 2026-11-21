@@ -1,5 +1,11 @@
 HELP.md
 target/
+web-push-test/node_modules/
+web-push-test/dist/
+.env
+.env.*
+!.env.example
+*service-account*.json
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/

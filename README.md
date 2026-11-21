@@ -69,7 +69,7 @@ Spring Cloud OpenFeign is used by the Feedback Service to call the User Service.
 | `feedback-service` | 8083 | Reads post-created events, looks up the author’s connections through User Service, and stores feed post IDs in Redis lists. |
 | `search-service` | 8080 unless changed | REST search endpoints and Elasticsearch repositories for `users` and `posts` indices. Kafka event indexing is not yet implemented. |
 | `api-gateway` | 8080 unless changed | Spring Cloud Gateway application scaffold. No routes or gateway-specific configuration are currently present. |
-| `notification-service` | 8080 unless changed | Consumes user, connection, like, and comment events from Kafka. Actual notification delivery is not implemented yet. |
+| `notification-service` | 8084 | Registers device tokens in its MySQL `notification_db` and sends user, connection, like, and comment events as Firebase Cloud Messaging pushes. |
 
 The default port for services without an explicit `server.port` is Spring Boot’s 8080. Run only one such service on that port at a time, or configure a different port.
 
@@ -87,14 +87,14 @@ The producers use JSON message values and string keys. Topics currently referenc
 
 | Topic                  | Producer/event | Current consumer |
 |------------------------|---|---|
-| `user.created`         | User Service after registration | Notification Service (delivery is a stub) |
+| `user.created`         | User Service after registration | Notification Service (FCM push) |
 | `profile.updated`      | User Service after profile update | None implemented |
-| `connection.requested` | User Service after a connection request | None implemented |
-| `connection.accepted`  | User Service after acceptance | Notification Service (delivery is a stub) |
+| `connection.requested` | User Service after a connection request | Notification Service (FCM push) |
+| `connection.accepted`  | User Service after acceptance | Notification Service (FCM push) |
 | `connection.rejected`  | Declared by User Service | No consumer; current reject path publishes to `connection.requested` instead |
 | `post.created`         | Post Service after creating a post | Feedback Service |
-| `post.liked`           | Declared by Post Service | Notification Service listens; current like path publishes to `post.created` instead |
-| `comment.created`      | Post Service after creating a comment; includes `commentId`, `postId`, `authorId`, `postAuthorId`, and `content` | Notification Service |
+| `post.liked`           | Post Service after a like; includes `postId`, `userId`, and `authorId` | Notification Service (FCM push) |
+| `comment.created`      | Post Service after creating a comment; includes `commentId`, `postId`, `authorId`, `postAuthorId`, and `content` | Notification Service (FCM push) |
 
 Kafka auto topic creation is enabled in the local Compose broker. For other Kafka installations, create the required topics or enable an equivalent broker policy.
 
@@ -159,6 +159,15 @@ Registration JSON fields include `email`, `password`, `firstName`, and `lastName
 
 Post search logic exists in the service/repository, but its controller method currently has no request mapping, so it is not exposed as an HTTP route.
 
+### Notification Service — `http://localhost:8084`
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/notifications/devices/{userId}` | Register or update a device’s FCM registration token. JSON body: `{"token":"..."}`. |
+| `DELETE` | `/api/v1/notifications/devices/{userId}` | Unregister a device token using the same JSON body. |
+
+These token-registration routes do not authenticate the supplied `userId`; expose them only behind a trusted authenticated boundary until user identity is verified.
+
 ## Run locally
 
 ### Prerequisites
@@ -193,9 +202,21 @@ Run each command from the repository root in a separate terminal:
 ./post-service/mvnw -f post-service/pom.xml spring-boot:run
 ./feedback-service/mvnw -f feedback-service/pom.xml spring-boot:run
 ./search-service/mvnw -f search-service/pom.xml spring-boot:run
+./notification-service/mvnw -f notification-service/pom.xml spring-boot:run
 ```
 
-The User, Post, and Feedback services explicitly use ports 8081, 8082, and 8083. Search Service uses the default 8080 unless configured otherwise. Start the API Gateway or Notification Service separately only after assigning a non-conflicting port; the gateway currently has no configured forwarding routes.
+The User, Post, Feedback, and Notification services use ports 8081, 8082, 8083, and 8084. Search Service uses the default 8080 unless configured otherwise. The API Gateway has no configured forwarding routes.
+
+For push delivery, configure Firebase Admin credentials using Application Default Credentials (for local development, set `GOOGLE_APPLICATION_CREDENTIALS` to a Firebase service-account JSON file outside the repository). Optionally set `FIREBASE_PROJECT_ID`. Register each client’s FCM registration token with Notification Service before expecting pushes.
+
+To register a browser for local push testing, start the Vite app in Notification Service (not a server from the repository root, which contains the ignored service-account file):
+
+```bash
+npm --prefix notification-service/web-push-test install
+npm --prefix notification-service/web-push-test run dev
+```
+
+Open `http://127.0.0.1:3000`, enter a real user ID and the VAPID public key from Firebase Console → Project settings → Cloud Messaging → Web Push certificates, then allow notifications. The page obtains a browser FCM token and registers it with Notification Service on port `8085` by default. Change the service URL in the page if Notification Service is using another port.
 
 ### 4. Smoke check
 
@@ -229,6 +250,9 @@ Configuration is per service in `src/main/resources/application.properties`; the
 | `AWS_BUCKET_NAME` | User and Post Services | Existing bucket used for profile and post media. |
 | `user.service.url` | Feedback Service | User Service base URL; defaults to `http://localhost:8081`. |
 | `feed.max-size` / `FEED_MAX_SIZE` | Feedback Service | Maximum number of post IDs retained in each Redis feed list; currently must be supplied. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Notification Service | Path to Firebase service-account credentials; keep this file outside source control. |
+| `FIREBASE_PROJECT_ID` | Notification Service | Optional Firebase project ID when it cannot be inferred from the credentials/environment. |
+| `MYSQL_USERNAME`, `MYSQL_PASSWORD` | Notification Service | MySQL credentials; local defaults are `root` / `root` for the Compose database. |
 | `spring.kafka.bootstrap-servers` | Kafka-enabled services | Local default is `localhost:9092`. |
 | `spring.data.redis.host`, `spring.data.redis.port` | Feedback Service | Local defaults are `localhost` and `6379`. |
 | `spring.elasticsearch.*` | Search Service | Point to the Elasticsearch instance; the local Compose endpoint is `http://localhost:9200`. |
@@ -254,12 +278,13 @@ Replace `user-service` in the wrapper and POM path with `post-service`, `feedbac
 ## Implementation status and limitations
 
 - The API Gateway has its dependency and application bootstrap, but no routes or JWT validation/filter configuration. Current controllers are reached directly.
-- Notification Service consumes `comment.created` (and other events), but its `sendNotification` method is empty, so no notification is actually delivered.
+- Notification Service sends Firebase Cloud Messaging pushes for user-created, connection-requested/accepted, post-liked, and comment-created events. Device tokens must first be registered, and Firebase credentials must be configured.
+- Notification token registration currently trusts the supplied user ID. Secure the endpoint with authenticated identity before exposing it to untrusted clients.
 - Search event indexing is not wired: `SearchEvenConsumer` is empty, and current user/post Kafka events are not consumed to populate Elasticsearch.
 - Search’s post-search service/repository exist, but the controller method lacks an HTTP mapping.
 - Feedback Service requires `feed.max-size`; no default is checked in. Feed entries contain post IDs, and the read API does not expand them into post data.
 - The connection model stores requester/receiver direction. Verify that accepted connections are represented in both directions if the product expects mutually visible connection lists.
 - Event handling and data writes are not coordinated with an outbox/transactional event pattern. Kafka delivery failures can leave database state and downstream projections out of sync.
-- Some event topic constants and publish paths are inconsistent (notably connection rejection and post likes); see [Kafka events](#kafka-events).
+- Connection rejection still publishes to `connection.requested` instead of `connection.rejected`; see [Kafka events](#kafka-events).
 - User profile and post authorization currently relies in places on caller-supplied IDs/headers. Do not expose these services to untrusted clients until authentication and authorization are enforced at a trusted boundary.
 - Local infrastructure disables Elasticsearch security and uses single-node Kafka/MySQL/Redis configurations. These are for development only.

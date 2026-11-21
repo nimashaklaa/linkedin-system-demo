@@ -101,10 +101,11 @@ public class PostService {
             log.info("Like post for user: {} with id: {}", userId, savedLike.getId());
 
             Map<String,Object> postLikedEvent = new HashMap<>();
-            postLikedEvent.put("postId",savedLike.getId());
+            postLikedEvent.put("postId", postId);
             postLikedEvent.put("userId", savedLike.getUserId());
+            postLikedEvent.put("authorId", post.getAuthorId());
 
-            kafkaTemplate.send(POST_LIKED_TOPIC,savedLike.getId(),postLikedEvent);
+            kafkaTemplate.send(POST_LIKED_TOPIC, postId, postLikedEvent);
             log.info("Like created event published successfully");
             return savedLike;
         }catch (DataIntegrityViolationException e) {

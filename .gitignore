@@ -1,2 +1,10 @@
 .idea
 *.iml
+
+# Local dependencies and secrets
+node_modules/
+.env
+.env.*
+!.env.example
+*service-account*.json
+firebase-service-account.json
