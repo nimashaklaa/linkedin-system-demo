@@ -15,24 +15,21 @@
 </head>
 <body>
   <h1>Firebase push notification test</h1>
-  <p>This page creates a browser FCM token and registers it with your local Notification Service.</p>
+  <p>Sign in with an existing account to register this browser for push notifications.</p>
 
-  <form id="register-form">
-    <label for="user-id">Existing user ID</label>
-    <input id="user-id" name="userId" required autocomplete="off">
+  <form id="login-form">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" required autocomplete="username">
+
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" required autocomplete="current-password">
 
     <label for="vapid-key">Firebase Web Push certificate key (VAPID public key)</label>
     <input id="vapid-key" name="vapidKey" required autocomplete="off">
 
-    <label for="service-url">Notification Service URL</label>
-    <input id="service-url" name="serviceUrl" value="http://localhost:8085" required>
-
-    <button type="submit">Allow notifications and register this browser</button>
-    <button id="invalidate-token" type="button">Invalidate this browser's current FCM token</button>
+    <button type="submit">Sign in and enable notifications</button>
   </form>
 
-  <h2>FCM registration token</h2>
-  <textarea id="token" readonly placeholder="The token will appear here after registration."></textarea>
   <p id="status" role="status">Ready.</p>
 
   <script type="module" src="/src/main.js"></script>

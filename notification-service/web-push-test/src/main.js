@@ -1,11 +1,5 @@
 import { initializeApp } from "firebase/app";
-import {
-  deleteToken,
-  getMessaging,
-  getToken,
-  isSupported,
-  onMessage
-} from "firebase/messaging";
+import { getMessaging, getToken, isSupported, onMessage } from "firebase/messaging";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDNXBLv2yaewo_02Euqqv8fu-S2Gdb9Z6w",
@@ -18,67 +12,63 @@ const firebaseConfig = {
 };
 
 const status = document.querySelector("#status");
-const tokenField = document.querySelector("#token");
 const app = initializeApp(firebaseConfig);
+let activeRegistration = null;
 
 if (await isSupported()) {
   const messaging = getMessaging(app);
   onMessage(messaging, ({ notification }) => {
-    status.textContent = `Push received while this page is open: ${notification?.title ?? "(no title)"} — ${notification?.body ?? ""}`;
-  });
-
-  document.querySelector("#invalidate-token").addEventListener("click", async () => {
-    status.textContent = "Invalidating this browser's current FCM token…";
-    try {
-      const vapidKey = document.querySelector("#vapid-key").value.trim();
-      if (!vapidKey) {
-        throw new Error("Enter the VAPID public key first.");
-      }
-
-      await navigator.serviceWorker.register("/firebase-messaging-sw.js", { scope: "/" });
-      const registration = await navigator.serviceWorker.ready;
-      const existingToken = await getToken(messaging, {
-        vapidKey,
-        serviceWorkerRegistration: registration
-      });
-
-      if (existingToken) {
-        const userId = document.querySelector("#user-id").value.trim();
-        const response = await fetch(`${getServiceUrl()}/api/v1/notifications/devices/${encodeURIComponent(userId)}`, {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: existingToken })
-        });
-        if (!response.ok) {
-          throw new Error(`Could not remove the old token from Notification Service (HTTP ${response.status}).`);
-        }
-      }
-
-      await deleteToken(messaging);
-      tokenField.value = "";
-      status.textContent = "Current token invalidated. Submit the form to generate and register a fresh token.";
-    } catch (error) {
-      status.textContent = `Could not invalidate token: ${error.message}`;
+    const title = notification?.title ?? "New notification";
+    const body = notification?.body ?? "";
+    status.textContent = `Push received: ${title} — ${body}`;
+    if (Notification.permission === "granted") {
+      new Notification(title, { body });
     }
   });
 
-  document.querySelector("#register-form").addEventListener("submit", async (event) => {
+  document.querySelector("#login-form").addEventListener("submit", async (event) => {
     event.preventDefault();
-    status.textContent = "Requesting notification permission…";
+    const form = event.currentTarget;
+    const submitButton = form.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
 
     try {
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        throw new Error("Notification permission was not granted.");
-      }
+      const email = document.querySelector("#email").value.trim();
+      const password = document.querySelector("#password").value;
+      const vapidKey = document.querySelector("#vapid-key").value.trim();
 
+      status.textContent = "Requesting browser notification permission…";
+      const permission = Notification.permission === "default"
+        ? await Notification.requestPermission()
+        : Notification.permission;
+
+      status.textContent = "Signing in…";
+      const loginResponse = await fetch("/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+      if (!loginResponse.ok) {
+        throw new Error(`Sign-in failed (HTTP ${loginResponse.status}): ${await loginResponse.text()}`);
+      }
+      const { userId } = await loginResponse.json();
+      if (!userId) {
+        throw new Error("Sign-in succeeded but the User Service response did not contain a user ID.");
+      }
+      document.querySelector("#password").value = "";
+
+      if (permission !== "granted") {
+        await unregisterStoredDevice();
+        activeRegistration = null;
+        status.textContent = `Signed in as ${email}, but browser notification permission was not granted. Push notifications are disabled for this browser.`;
+        return;
+      }
       await navigator.serviceWorker.register("/firebase-messaging-sw.js", { scope: "/" });
       const registration = await navigator.serviceWorker.ready;
       if (!registration.active) {
         throw new Error("The Firebase service worker did not activate. Check the browser console for its registration error.");
       }
 
-      const vapidKey = document.querySelector("#vapid-key").value.trim();
       const token = await getToken(messaging, {
         vapidKey,
         serviceWorkerRegistration: registration
@@ -86,26 +76,87 @@ if (await isSupported()) {
       if (!token) {
         throw new Error("Firebase did not return a registration token.");
       }
-      tokenField.value = token;
 
-      const userId = document.querySelector("#user-id").value.trim();
-      const response = await fetch(`${getServiceUrl()}/api/v1/notifications/devices/${encodeURIComponent(userId)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token })
-      });
-      if (!response.ok) {
-        throw new Error(`Notification Service returned HTTP ${response.status}: ${await response.text()}`);
-      }
-      status.textContent = `Browser token registered successfully (HTTP ${response.status}).`;
+      await syncDeviceToken(userId, token);
+      activeRegistration = { userId, messaging, registration, vapidKey };
+      status.textContent = `Signed in as ${email}; this browser is registered for push notifications.`;
     } catch (error) {
-      status.textContent = `Could not register browser: ${error.message}`;
+      status.textContent = `Could not complete sign-in and notification setup: ${error.message}`;
+    } finally {
+      submitButton.disabled = false;
     }
   });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && activeRegistration) {
+      refreshDeviceRegistration();
+    }
+  });
+  window.setInterval(() => {
+    if (activeRegistration) {
+      refreshDeviceRegistration();
+    }
+  }, 12 * 60 * 60 * 1000);
 } else {
   status.textContent = "This browser does not support Firebase Cloud Messaging.";
 }
 
-function getServiceUrl() {
-  return document.querySelector("#service-url").value.trim().replace(/\/+$/, "");
+async function refreshDeviceRegistration() {
+  try {
+    const { userId, messaging, registration, vapidKey } = activeRegistration;
+    const token = await getToken(messaging, {
+      vapidKey,
+      serviceWorkerRegistration: registration
+    });
+    if (!token) {
+      throw new Error("Firebase did not return a registration token.");
+    }
+    await syncDeviceToken(userId, token);
+    status.textContent = "Push registration is up to date.";
+  } catch (error) {
+    status.textContent = `Could not refresh push registration: ${error.message}`;
+  }
+}
+
+async function syncDeviceToken(userId, token) {
+  const storageKey = "fcm-device-registration";
+  const previous = JSON.parse(localStorage.getItem(storageKey) ?? "null");
+  if (previous && (previous.token !== token || previous.userId !== userId)) {
+    const deleteResponse = await fetch(`/api/v1/notifications/devices/${encodeURIComponent(previous.userId)}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: previous.token })
+    });
+    if (!deleteResponse.ok) {
+      throw new Error(`Could not remove the previous device registration (HTTP ${deleteResponse.status}).`);
+    }
+  }
+
+  const response = await fetch(`/api/v1/notifications/devices/${encodeURIComponent(userId)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token })
+  });
+  if (!response.ok) {
+    throw new Error(`Device registration failed (HTTP ${response.status}): ${await response.text()}`);
+  }
+  localStorage.setItem(storageKey, JSON.stringify({ userId, token }));
+}
+
+async function unregisterStoredDevice() {
+  const storageKey = "fcm-device-registration";
+  const previous = JSON.parse(localStorage.getItem(storageKey) ?? "null");
+  if (!previous) {
+    return;
+  }
+
+  const response = await fetch(`/api/v1/notifications/devices/${encodeURIComponent(previous.userId)}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: previous.token })
+  });
+  if (!response.ok) {
+    throw new Error(`Could not remove the previous device registration (HTTP ${response.status}).`);
+  }
+  localStorage.removeItem(storageKey);
 }

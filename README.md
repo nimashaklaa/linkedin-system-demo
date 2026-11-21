@@ -25,9 +25,13 @@ flowchart LR
     Client -. direct HTTP .-> Post["Post Service :8082"]
     Client -. direct HTTP .-> Feed["Feedback Service :8083"]
     Client -. direct HTTP .-> Search["Search Service"]
+    Client -->|sign in / register device token| NotificationWeb["Browser Push Test Client :3000"]
+    NotificationWeb -->|login HTTP| User
+    NotificationWeb -->|register FCM token| Notification["Notification Service :8084"]
 
     User --> UserDB[("MySQL<br/>user_db")]
     Post --> PostDB[("MySQL<br/>post_db")]
+    Notification --> NotificationDB[("MySQL<br/>notification_db")]
     User --> Kafka[("Kafka")]
     Post --> Kafka
     Kafka --> Feed
@@ -36,12 +40,14 @@ flowchart LR
     Search --> ES[("Elasticsearch<br/>users / posts indices")]
     User -. planned indexing events .-> Kafka
     Post -. planned indexing events .-> Kafka
-    Kafka --> Notification["Notification Service<br/>(Kafka event listeners)"]
+    Kafka -->|account, connection, like, comment events| Notification
+    Notification -->|FCM push| Firebase["Firebase Cloud Messaging"]
+    Firebase -->|web push| NotificationWeb
     User --> S3[("AWS S3<br/>profile / post media")]
     Post --> S3
 ```
 
-`docker-compose.yml` runs the local infrastructure only: MySQL, Redis, Elasticsearch, and a single-node Kafka broker. The Spring applications are run separately. The API Gateway currently has an application bootstrap but no implemented routing. Notification Service consumes Kafka events; its notification delivery method is still a stub.
+`docker-compose.yml` runs the local infrastructure only: MySQL, Redis, Elasticsearch, and a single-node Kafka broker. The Spring applications are run separately. The API Gateway currently has an application bootstrap but no implemented routing. Notification Service consumes Kafka events, looks up registered device tokens in MySQL, and sends pushes through Firebase Cloud Messaging. The local browser test client signs in through User Service and registers its browser token with Notification Service.
 
 ## Technology stack
 
@@ -69,7 +75,7 @@ Spring Cloud OpenFeign is used by the Feedback Service to call the User Service.
 | `feedback-service` | 8083 | Reads post-created events, looks up the author’s connections through User Service, and stores feed post IDs in Redis lists. |
 | `search-service` | 8080 unless changed | REST search endpoints and Elasticsearch repositories for `users` and `posts` indices. Kafka event indexing is not yet implemented. |
 | `api-gateway` | 8080 unless changed | Spring Cloud Gateway application scaffold. No routes or gateway-specific configuration are currently present. |
-| `notification-service` | 8084 | Registers device tokens in its MySQL `notification_db` and sends user, connection, like, and comment events as Firebase Cloud Messaging pushes. |
+| `notification-service` | 8084 | Registers device tokens in its MySQL `notification_db` and sends registration, login, connection, like, and comment events as Firebase Cloud Messaging pushes. |
 
 The default port for services without an explicit `server.port` is Spring Boot’s 8080. Run only one such service on that port at a time, or configure a different port.
 
@@ -87,7 +93,8 @@ The producers use JSON message values and string keys. Topics currently referenc
 
 | Topic                  | Producer/event | Current consumer |
 |------------------------|---|---|
-| `user.created`         | User Service after registration | Notification Service (FCM push) |
+| `user.created`         | User Service after registration | Notification Service (FCM welcome push) |
+| `user.logged_in`       | User Service after successful login; includes `userId`, `email`, and `firstName` | Notification Service (FCM login push) |
 | `profile.updated`      | User Service after profile update | None implemented |
 | `connection.requested` | User Service after a connection request | Notification Service (FCM push) |
 | `connection.accepted`  | User Service after acceptance | Notification Service (FCM push) |
@@ -168,6 +175,10 @@ Post search logic exists in the service/repository, but its controller method cu
 
 These token-registration routes do not authenticate the supplied `userId`; expose them only behind a trusted authenticated boundary until user identity is verified.
 
+### Browser push test client — `http://127.0.0.1:3000`
+
+The demo client in `notification-service/web-push-test` signs in through User Service, requests browser notification permission, gets an FCM token, and registers it with Notification Service. The browser permission prompt still requires an explicit user action. On later successful logins, User Service publishes `user.logged_in`, which Notification Service turns into a push to registered devices.
+
 ## Run locally
 
 ### Prerequisites
@@ -207,7 +218,7 @@ Run each command from the repository root in a separate terminal:
 
 The User, Post, Feedback, and Notification services use ports 8081, 8082, 8083, and 8084. Search Service uses the default 8080 unless configured otherwise. The API Gateway has no configured forwarding routes.
 
-For push delivery, configure Firebase Admin credentials using Application Default Credentials (for local development, set `GOOGLE_APPLICATION_CREDENTIALS` to a Firebase service-account JSON file outside the repository). Optionally set `FIREBASE_PROJECT_ID`. Register each client’s FCM registration token with Notification Service before expecting pushes.
+For push delivery, configure Firebase Admin credentials using Application Default Credentials (for local development, set `GOOGLE_APPLICATION_CREDENTIALS` to a Firebase service-account JSON file outside the repository). Optionally set `FIREBASE_PROJECT_ID`.
 
 To register a browser for local push testing, start the Vite app in Notification Service (not a server from the repository root, which contains the ignored service-account file):
 
@@ -216,7 +227,7 @@ npm --prefix notification-service/web-push-test install
 npm --prefix notification-service/web-push-test run dev
 ```
 
-Open `http://127.0.0.1:3000`, enter a real user ID and the VAPID public key from Firebase Console → Project settings → Cloud Messaging → Web Push certificates, then allow notifications. The page obtains a browser FCM token and registers it with Notification Service on port `8085` by default. Change the service URL in the page if Notification Service is using another port.
+Open `http://127.0.0.1:3000`, enter an existing account’s email/password and the VAPID public key from Firebase Console → Project settings → Cloud Messaging → Web Push certificates, then click **Sign in and enable notifications**. After successful sign-in, the page uses the returned user ID to obtain and register the browser FCM token automatically; the token is not displayed. Vite proxies authentication to User Service on port `8081` and device registration to Notification Service on port `8085`. Update these proxy targets in `notification-service/web-push-test/vite.config.js` if you use different ports. Device registration should be completed at least once before expecting a login push; on a first-ever login/signup the browser token does not exist until after authentication.
 
 ### 4. Smoke check
 
@@ -253,6 +264,7 @@ Configuration is per service in `src/main/resources/application.properties`; the
 | `GOOGLE_APPLICATION_CREDENTIALS` | Notification Service | Path to Firebase service-account credentials; keep this file outside source control. |
 | `FIREBASE_PROJECT_ID` | Notification Service | Optional Firebase project ID when it cannot be inferred from the credentials/environment. |
 | `MYSQL_USERNAME`, `MYSQL_PASSWORD` | Notification Service | MySQL credentials; local defaults are `root` / `root` for the Compose database. |
+| Firebase Web Push VAPID public key | Browser push test client | Required by the Firebase Web SDK to obtain a web push token; configure in Firebase Console and enter into the local test page. This is a public key, not the service-account private key. |
 | `spring.kafka.bootstrap-servers` | Kafka-enabled services | Local default is `localhost:9092`. |
 | `spring.data.redis.host`, `spring.data.redis.port` | Feedback Service | Local defaults are `localhost` and `6379`. |
 | `spring.elasticsearch.*` | Search Service | Point to the Elasticsearch instance; the local Compose endpoint is `http://localhost:9200`. |
@@ -278,7 +290,7 @@ Replace `user-service` in the wrapper and POM path with `post-service`, `feedbac
 ## Implementation status and limitations
 
 - The API Gateway has its dependency and application bootstrap, but no routes or JWT validation/filter configuration. Current controllers are reached directly.
-- Notification Service sends Firebase Cloud Messaging pushes for user-created, connection-requested/accepted, post-liked, and comment-created events. Device tokens must first be registered, and Firebase credentials must be configured.
+- Notification Service sends Firebase Cloud Messaging pushes for user-created/logged-in, connection-requested/accepted, post-liked, and comment-created events. Device tokens must first be registered, and Firebase credentials must be configured. The local browser test client registers a token after login; first-login/signup events can occur before registration and therefore may have no device to receive them.
 - Notification token registration currently trusts the supplied user ID. Secure the endpoint with authenticated identity before exposing it to untrusted clients.
 - Search event indexing is not wired: `SearchEvenConsumer` is empty, and current user/post Kafka events are not consumed to populate Elasticsearch.
 - Search’s post-search service/repository exist, but the controller method lacks an HTTP mapping.

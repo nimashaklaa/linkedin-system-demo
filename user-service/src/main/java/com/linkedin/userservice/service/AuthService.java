@@ -40,6 +40,7 @@ public class AuthService {
     private long refreshTokenExpiration;
 
     private static final String USER_CREATED_TOPIC = "user.created";
+    private static final String USER_LOGGED_IN_TOPIC = "user.logged_in";
 
     public AuthResponse register(@Valid RegisterRequest registerRequest) {
         log.info("Registering user: {}", registerRequest.getEmail());
@@ -97,6 +98,12 @@ public class AuthService {
 
         // Generate JWT token
         String token = generateToken(user.getId(), user.getEmail());
+        kafkaTemplate.send(USER_LOGGED_IN_TOPIC, user.getId(), Map.of(
+                "userId", user.getId(),
+                "email", user.getEmail(),
+                "firstName", user.getFirstName() == null ? "there" : user.getFirstName()
+        ));
+        log.info("User logged-in event published successfully");
         return buildAuthResponse(user, token);
 
     }

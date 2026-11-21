@@ -25,6 +25,15 @@ public class NotificationService {
         );
     }
 
+    @KafkaListener(topics = "user.logged_in")
+    public void consumeUserLoggedIn(@Payload Map<String, Object> payload) {
+        firebasePushSender.send(
+                requiredString(payload, "userId"),
+                "You are signed in",
+                String.format("Welcome back, %s.", requiredString(payload, "firstName"))
+        );
+    }
+
     @KafkaListener(topics = "connection.requested")
     public void consumeConnectionRequest(@Payload Map<String, Object> payload) {
         firebasePushSender.send(
