@@ -39,7 +39,7 @@ public class AuthService {
     @Value("${jwt.refresh-expiration}")
     private long refreshTokenExpiration;
 
-    private static final String USER_CREATED_TOPIC = "user-created";
+    private static final String USER_CREATED_TOPIC = "user.created";
 
     public AuthResponse register(@Valid RegisterRequest registerRequest) {
         log.info("Registering user: {}", registerRequest.getEmail());
