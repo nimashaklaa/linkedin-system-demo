@@ -36,12 +36,12 @@ flowchart LR
     Search --> ES[("Elasticsearch<br/>users / posts indices")]
     User -. planned indexing events .-> Kafka
     Post -. planned indexing events .-> Kafka
-    Notification["Notification Service<br/>(starter)"] -. planned .-> Kafka
+    Kafka --> Notification["Notification Service<br/>(Kafka event listeners)"]
     User --> S3[("AWS S3<br/>profile / post media")]
     Post --> S3
 ```
 
-`docker-compose.yml` runs the local infrastructure only: MySQL, Redis, Elasticsearch, and a single-node Kafka broker. The Spring applications are run separately. The API Gateway and Notification Service currently have application bootstraps but no implemented routing or notification workflow, respectively.
+`docker-compose.yml` runs the local infrastructure only: MySQL, Redis, Elasticsearch, and a single-node Kafka broker. The Spring applications are run separately. The API Gateway currently has an application bootstrap but no implemented routing. Notification Service consumes Kafka events; its notification delivery method is still a stub.
 
 ## Technology stack
 
@@ -69,7 +69,7 @@ Spring Cloud OpenFeign is used by the Feedback Service to call the User Service.
 | `feedback-service` | 8083 | Reads post-created events, looks up the author’s connections through User Service, and stores feed post IDs in Redis lists. |
 | `search-service` | 8080 unless changed | REST search endpoints and Elasticsearch repositories for `users` and `posts` indices. Kafka event indexing is not yet implemented. |
 | `api-gateway` | 8080 unless changed | Spring Cloud Gateway application scaffold. No routes or gateway-specific configuration are currently present. |
-| `notification-service` | 8080 unless changed | Spring Boot application scaffold. Notification handling is not currently implemented. |
+| `notification-service` | 8080 unless changed | Consumes user, connection, like, and comment events from Kafka. Actual notification delivery is not implemented yet. |
 
 The default port for services without an explicit `server.port` is Spring Boot’s 8080. Run only one such service on that port at a time, or configure a different port.
 
@@ -87,13 +87,14 @@ The producers use JSON message values and string keys. Topics currently referenc
 
 | Topic                  | Producer/event | Current consumer |
 |------------------------|---|---|
-| `user.created`         | User Service after registration | None implemented |
+| `user.created`         | User Service after registration | Notification Service (delivery is a stub) |
 | `profile.updated`      | User Service after profile update | None implemented |
 | `connection.requested` | User Service after a connection request | None implemented |
-| `connection.accepted`  | User Service after acceptance | None implemented |
+| `connection.accepted`  | User Service after acceptance | Notification Service (delivery is a stub) |
 | `connection.rejected`  | Declared by User Service | No consumer; current reject path publishes to `connection.requested` instead |
 | `post.created`         | Post Service after creating a post | Feedback Service |
-| `post.liked`           | Declared by Post Service | No consumer; current like path publishes to `post.created` |
+| `post.liked`           | Declared by Post Service | Notification Service listens; current like path publishes to `post.created` instead |
+| `comment.created`      | Post Service after creating a comment; includes `commentId`, `postId`, `authorId`, `postAuthorId`, and `content` | Notification Service |
 
 Kafka auto topic creation is enabled in the local Compose broker. For other Kafka installations, create the required topics or enable an equivalent broker policy.
 
@@ -253,7 +254,7 @@ Replace `user-service` in the wrapper and POM path with `post-service`, `feedbac
 ## Implementation status and limitations
 
 - The API Gateway has its dependency and application bootstrap, but no routes or JWT validation/filter configuration. Current controllers are reached directly.
-- Notification Service is only a Spring Boot scaffold.
+- Notification Service consumes `comment.created` (and other events), but its `sendNotification` method is empty, so no notification is actually delivered.
 - Search event indexing is not wired: `SearchEvenConsumer` is empty, and current user/post Kafka events are not consumed to populate Elasticsearch.
 - Search’s post-search service/repository exist, but the controller method lacks an HTTP mapping.
 - Feedback Service requires `feed.max-size`; no default is checked in. Feed entries contain post IDs, and the read API does not expand them into post data.
