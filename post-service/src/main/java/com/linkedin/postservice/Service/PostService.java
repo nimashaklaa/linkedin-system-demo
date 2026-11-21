@@ -36,6 +36,7 @@ public class PostService {
 
     private static final String POST_CREATED_TOPIC = "post.created";
     private static final String POST_LIKED_TOPIC="post.liked";
+    private static final String COMMENT_CREATED_TOPIC = "comment.created";
 
     public Post createPost(String authorId, String content, MultipartFile media) throws IOException {
         log.info("Creating post for user: {} with content: {}", authorId, content);
@@ -103,7 +104,7 @@ public class PostService {
             postLikedEvent.put("postId",savedLike.getId());
             postLikedEvent.put("userId", savedLike.getUserId());
 
-            kafkaTemplate.send(POST_CREATED_TOPIC,savedLike.getId(),postLikedEvent);
+            kafkaTemplate.send(POST_LIKED_TOPIC,savedLike.getId(),postLikedEvent);
             log.info("Like created event published successfully");
             return savedLike;
         }catch (DataIntegrityViolationException e) {
@@ -127,12 +128,24 @@ public class PostService {
 
 
     public Comment addComment(String postId, String authorId, String content) {
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new RuntimeException("Post not found"));
         Comment savedComment = commentRepository.save(Comment.builder()
                 .postId(postId)
                 .authorId(authorId)
                 .content(content)
                 .build());
         log.info("Comment created successfully: {}", savedComment.getId());
+
+        Map<String, Object> commentCreatedEvent = new HashMap<>();
+        commentCreatedEvent.put("commentId", savedComment.getId());
+        commentCreatedEvent.put("postId", postId);
+        commentCreatedEvent.put("authorId", authorId);
+        commentCreatedEvent.put("postAuthorId", post.getAuthorId());
+        commentCreatedEvent.put("content", content);
+        kafkaTemplate.send(COMMENT_CREATED_TOPIC, savedComment.getId(), commentCreatedEvent);
+        log.info("Comment created event published successfully");
+
         return savedComment;
     }
 
