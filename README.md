@@ -27,7 +27,7 @@ flowchart LR
     Client -. direct HTTP .-> Search["Search Service"]
     Client -->|sign in / register device token| NotificationWeb["Browser Push Test Client :3000"]
     NotificationWeb -->|login HTTP| User
-    NotificationWeb -->|register FCM token| Notification["Notification Service :8084"]
+    NotificationWeb -->|register FCM token| Notification["Notification Service :8085"]
 
     User --> UserDB[("MySQL<br/>user_db")]
     Post --> PostDB[("MySQL<br/>post_db")]
@@ -73,9 +73,9 @@ Spring Cloud OpenFeign is used by the Feedback Service to call the User Service.
 | `user-service` | 8081 | Registration/login, profiles, profile images, and connection requests. MySQL database `user_db`; publishes user and connection events to Kafka. |
 | `post-service` | 8082 | Create/read/delete posts, likes, and comments. MySQL database `post_db`; stores media in S3 and publishes post events to Kafka. |
 | `feedback-service` | 8083 | Reads post-created events, looks up the author’s connections through User Service, and stores feed post IDs in Redis lists. |
-| `search-service` | 8080 unless changed | REST search endpoints and Elasticsearch repositories for `users` and `posts` indices. Kafka event indexing is not yet implemented. |
+| `search-service` | 8084 | REST search endpoints and Elasticsearch repositories for `users` and `posts` indices. Kafka event indexing is not yet implemented. |
 | `api-gateway` | 8080 unless changed | Spring Cloud Gateway application scaffold. No routes or gateway-specific configuration are currently present. |
-| `notification-service` | 8084 | Registers device tokens in its MySQL `notification_db` and sends registration, login, connection, like, and comment events as Firebase Cloud Messaging pushes. |
+| `notification-service` | 8085 | Registers device tokens in its MySQL `notification_db` and sends registration, login, connection, like, and comment events as Firebase Cloud Messaging pushes. |
 
 The default port for services without an explicit `server.port` is Spring Boot’s 8080. Run only one such service on that port at a time, or configure a different port.
 
@@ -157,7 +157,7 @@ Registration JSON fields include `email`, `password`, `firstName`, and `lastName
 | `GET` | `/api/v1/feed/{userId}?page=0&size=10` | Read a page of post IDs from the user’s Redis feed. |
 | `DELETE` | `/api/v1/feed/{userId}/cache` | Clear the user’s cached feed. |
 
-### Search Service — `http://localhost:8080` by default
+### Search Service — `http://localhost:8084`
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -166,7 +166,7 @@ Registration JSON fields include `email`, `password`, `firstName`, and `lastName
 
 Post search logic exists in the service/repository, but its controller method currently has no request mapping, so it is not exposed as an HTTP route.
 
-### Notification Service — `http://localhost:8084`
+### Notification Service — `http://localhost:8085`
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -216,16 +216,20 @@ Run each command from the repository root in a separate terminal:
 ./notification-service/mvnw -f notification-service/pom.xml spring-boot:run
 ```
 
-The User, Post, Feedback, and Notification services use ports 8081, 8082, 8083, and 8084. Search Service uses the default 8080 unless configured otherwise. The API Gateway has no configured forwarding routes.
+The User, Post, Feedback, Search, and Notification services use ports 8081, 8082, 8083, 8084, and 8085. The API Gateway has no configured forwarding routes.
 
 For push delivery, configure Firebase Admin credentials using Application Default Credentials (for local development, set `GOOGLE_APPLICATION_CREDENTIALS` to a Firebase service-account JSON file outside the repository). Optionally set `FIREBASE_PROJECT_ID`.
 
 To register a browser for local push testing, start the Vite app in Notification Service (not a server from the repository root, which contains the ignored service-account file):
 
 ```bash
+# On first setup only; do not overwrite an existing local .env.
+cp notification-service/web-push-test/.env.example notification-service/web-push-test/.env
 npm --prefix notification-service/web-push-test install
 npm --prefix notification-service/web-push-test run dev
 ```
+
+Before starting Vite, copy `notification-service/web-push-test/.env.example` to `notification-service/web-push-test/.env` and fill in the Firebase Web app configuration from Firebase Console → Project settings → General → Your apps. These `VITE_FIREBASE_*` values are public client configuration and will be included in the browser app; do not put Firebase Admin service-account credentials there. The service worker uses the same config.
 
 Open `http://127.0.0.1:3000`, enter an existing account’s email/password and the VAPID public key from Firebase Console → Project settings → Cloud Messaging → Web Push certificates, then click **Sign in and enable notifications**. After successful sign-in, the page uses the returned user ID to obtain and register the browser FCM token automatically; the token is not displayed. Vite proxies authentication to User Service on port `8081` and device registration to Notification Service on port `8085`. Update these proxy targets in `notification-service/web-push-test/vite.config.js` if you use different ports. Device registration should be completed at least once before expecting a login push; on a first-ever login/signup the browser token does not exist until after authentication.
 

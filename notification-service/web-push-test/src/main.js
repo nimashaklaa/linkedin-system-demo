@@ -2,13 +2,13 @@ import { initializeApp } from "firebase/app";
 import { getMessaging, getToken, isSupported, onMessage } from "firebase/messaging";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDNXBLv2yaewo_02Euqqv8fu-S2Gdb9Z6w",
-  authDomain: "push-notification-90b72.firebaseapp.com",
-  projectId: "push-notification-90b72",
-  storageBucket: "push-notification-90b72.firebasestorage.app",
-  messagingSenderId: "891347951307",
-  appId: "1:891347951307:web:338ab468d858e5d055c54e",
-  measurementId: "G-9K1P4FPX9V"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
 const status = document.querySelector("#status");
