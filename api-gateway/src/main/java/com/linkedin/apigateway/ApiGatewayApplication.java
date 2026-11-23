@@ -1,4 +1,4 @@
-package com.linkedin.api_gateway;
+package com.linkedin.apigateway;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

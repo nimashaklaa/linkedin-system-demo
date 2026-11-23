@@ -1,4 +1,4 @@
-package com.linkedin.api_gateway.filter;
+package com.linkedin.apigateway.filter;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
