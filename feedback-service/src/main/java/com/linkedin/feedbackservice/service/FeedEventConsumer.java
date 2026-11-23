@@ -18,7 +18,7 @@ import java.util.Map;
 public class FeedEventConsumer {
     private final UserServiceClient userServiceClient;
     private static final String FEED_KEY_PREFIX = "feed:";
-    private final RedisTemplate<Object, Object> redisTemplate;
+    private final RedisTemplate<String, Object> redisTemplate;
 
     @Value("${feed.max-size}")
     private int maxFeedSize;
