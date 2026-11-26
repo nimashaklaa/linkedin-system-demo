@@ -32,7 +32,7 @@ services:
   # ELASTICSEARCH — Search
   # ─────────────────────────────────────────
   elasticsearch:
-    image: elasticsearch:8.11.0
+    image: elasticsearch:9.4.8
     container_name: elasticsearch
     environment:
       - discovery.type=single-node
@@ -41,7 +41,7 @@ services:
     ports:
       - "9200:9200"
     volumes:
-      - elasticsearch-data:/usr/share/elasticsearch/data
+      - elasticsearch-data-v9:/usr/share/elasticsearch/data
     networks:
       - linkedin-network
 
@@ -71,6 +71,7 @@ services:
 volumes:
   mysql-data:
   elasticsearch-data:
+  elasticsearch-data-v9:
 
 networks:
   linkedin-network:
