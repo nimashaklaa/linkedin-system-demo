@@ -2,6 +2,7 @@ package com.linkedin.userservice.controller;
 
 import com.linkedin.userservice.dto.UserResponse;
 import com.linkedin.userservice.dto.UpdateUserProfileRequest;
+import com.linkedin.userservice.entity.Connection;
 import com.linkedin.userservice.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -52,6 +53,15 @@ public class UserController {
                 targetUserId,
                 requestingUserId
         ));
+    }
+
+    @GetMapping("/{targetUserId}/connections/pending")
+    public ResponseEntity<List<Connection>> getPendingConnections(
+            @PathVariable String targetUserId
+    ){
+        return ResponseEntity.ok(
+                userService.getPendingConnections(targetUserId)
+        );
     }
 
     @PostMapping("/connection/{connectionId}/accept")

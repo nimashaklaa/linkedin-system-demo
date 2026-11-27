@@ -10,6 +10,7 @@ A Java/Spring Boot microservices project that models selected LinkedIn-style fea
 - [Technology stack](#technology-stack)
 - [Services](#services)
 - [Data and event flows](#data-and-event-flows)
+- [Kafka under the hood](Apache_Kafka_KRaft_and_Spring_Kafka.md)
 - [HTTP API](#http-api)
 - [Run locally](#run-locally)
 - [Configuration](#configuration)
@@ -35,11 +36,10 @@ flowchart LR
     User --> Kafka[("Kafka")]
     Post --> Kafka
     Kafka --> Feed
+    Kafka -->|user.created / post.created| Search
     Feed -->|Feign HTTP| User
     Feed --> Redis[("Redis<br/>feed lists")]
     Search --> ES[("Elasticsearch<br/>users / posts indices")]
-    User -. planned indexing events .-> Kafka
-    Post -. planned indexing events .-> Kafka
     Kafka -->|account, connection, like, comment events| Notification
     Notification -->|FCM push| Firebase["Firebase Cloud Messaging"]
     Firebase -->|web push| NotificationWeb
@@ -73,7 +73,7 @@ Spring Cloud OpenFeign is used by the Feedback Service to call the User Service.
 | `user-service` | 8081 | Registration/login, profiles, profile images, and connection requests. MySQL database `user_db`; publishes user and connection events to Kafka. |
 | `post-service` | 8082 | Create/read/delete posts, likes, and comments. MySQL database `post_db`; stores media in S3 and publishes post events to Kafka. |
 | `feedback-service` | 8083 | Reads post-created events, looks up the author’s connections through User Service, and stores feed post IDs in Redis lists. |
-| `search-service` | 8084 | REST search endpoints and Elasticsearch repositories for `users` and `posts` indices. Kafka event indexing is not yet implemented. |
+| `search-service` | 8084 | REST search endpoints and Elasticsearch repositories for `users` and `posts` indices; consumes user-created and post-created events. |
 | `api-gateway` | 8080 unless changed | Spring Cloud Gateway application scaffold. No routes or gateway-specific configuration are currently present. |
 | `notification-service` | 8085 | Registers device tokens in its MySQL `notification_db` and sends registration, login, connection, like, and comment events as Firebase Cloud Messaging pushes. |
 
@@ -93,13 +93,13 @@ The producers use JSON message values and string keys. Topics currently referenc
 
 | Topic                  | Producer/event | Current consumer |
 |------------------------|---|---|
-| `user.created`         | User Service after registration | Notification Service (FCM welcome push) |
+| `user.created`         | User Service after registration | Notification Service (FCM welcome push); Search Service (user index) |
 | `user.logged_in`       | User Service after successful login; includes `userId`, `email`, and `firstName` | Notification Service (FCM login push) |
 | `profile.updated`      | User Service after profile update | None implemented |
 | `connection.requested` | User Service after a connection request | Notification Service (FCM push) |
 | `connection.accepted`  | User Service after acceptance | Notification Service (FCM push) |
 | `connection.rejected`  | Declared by User Service | No consumer; current reject path publishes to `connection.requested` instead |
-| `post.created`         | Post Service after creating a post | Feedback Service |
+| `post.created`         | Post Service after creating a post | Feedback Service; Search Service (post index) |
 | `post.liked`           | Post Service after a like; includes `postId`, `userId`, and `authorId` | Notification Service (FCM push) |
 | `comment.created`      | Post Service after creating a comment; includes `commentId`, `postId`, `authorId`, `postAuthorId`, and `content` | Notification Service (FCM push) |
 
@@ -110,7 +110,7 @@ Kafka auto topic creation is enabled in the local Compose broker. For other Kafk
 - Feed entries are stored as Redis lists using the key `feed:{userId}`. New post IDs are pushed to the head and the list is trimmed to the configured maximum.
 - Feed reads use zero-based `page` and `size` parameters and return post IDs, not expanded post objects.
 - Elasticsearch documents are defined for the `users` and `posts` indices. Repository queries include a multi-field user search and fuzzy post-content search.
-- Although user/post events and index document types exist, a Kafka-to-Elasticsearch indexing consumer is not currently implemented.
+- Search Service consumes `user.created` and `post.created` events to update Elasticsearch. Its update listener currently subscribes to `user.updated`, while User Service publishes `profile.updated`, so profile updates are not applied to the search index. The post index listener expects `imageUrl`, while Post Service publishes `mediaUrl`.
 
 ### Media
 
@@ -296,7 +296,7 @@ Replace `user-service` in the wrapper and POM path with `post-service`, `feedbac
 - The API Gateway has its dependency and application bootstrap, but no routes or JWT validation/filter configuration. Current controllers are reached directly.
 - Notification Service sends Firebase Cloud Messaging pushes for user-created/logged-in, connection-requested/accepted, post-liked, and comment-created events. Device tokens must first be registered, and Firebase credentials must be configured. The local browser test client registers a token after login; first-login/signup events can occur before registration and therefore may have no device to receive them.
 - Notification token registration currently trusts the supplied user ID. Secure the endpoint with authenticated identity before exposing it to untrusted clients.
-- Search event indexing is not wired: `SearchEvenConsumer` is empty, and current user/post Kafka events are not consumed to populate Elasticsearch.
+- Search event indexing is implemented for `user.created` and `post.created`; see the field/topic mismatches under [Feed and search](#feed-and-search).
 - Search’s post-search service/repository exist, but the controller method lacks an HTTP mapping.
 - Feedback Service requires `feed.max-size`; no default is checked in. Feed entries contain post IDs, and the read API does not expand them into post data.
 - The connection model stores requester/receiver direction. Verify that accepted connections are represented in both directions if the product expects mutually visible connection lists.

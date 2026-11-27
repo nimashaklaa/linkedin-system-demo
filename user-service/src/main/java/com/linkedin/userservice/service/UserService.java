@@ -191,4 +191,8 @@ public class UserService {
         User savedUser = userRepository.save(user);
         return buildUserResponse(savedUser);
     }
+
+    public List<Connection> getPendingConnections(String targetUserId) {
+        return connectionRepository.findByReceiverIdAndStatus(targetUserId, ConnectionStatus.PENDING);
+    }
 }
